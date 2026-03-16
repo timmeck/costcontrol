@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CostControl — AI Cost Controller</title>
+<style>
+:root {
+    --primary: #10B981;
+    --primary-dim: #059669;
+    --primary-glow: rgba(16, 185, 129, 0.15);
+    --danger: #EF4444;
+    --warning: #F59E0B;
+    --info: #3B82F6;
+    --bg-deep: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #263548;
+    --bg-input: #0f172a;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-muted: #64748b;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: var(--font);
+    background: var(--bg-deep);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+.header {
+    background: linear-gradient(135deg, #0f172a 0%, #1a2332 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+}
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--primary), #34d399);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800; color: #0f172a;
+}
+.brand { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.brand span { color: var(--primary); }
+.header-right {
+    display: flex; align-items: center; gap: 16px;
+}
+.connection-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+    animation: pulse 2s infinite;
+}
+.connection-dot.disconnected { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.version { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
+
+/* Alert Banner */
+.alert-banner {
+    background: linear-gradient(90deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1));
+    border-bottom: 1px solid rgba(239,68,68,0.3);
+    padding: 10px 32px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+}
+.alert-banner.show { display: flex; }
+.alert-icon { color: var(--danger); font-size: 16px; font-weight: 700; }
+.alert-text { flex: 1; }
+.alert-dismiss {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.alert-dismiss:hover { background: var(--bg-card); }
+
+/* Main Content */
+.main { padding: 24px 32px; max-width: 1440px; margin: 0 auto; }
+
+/* Stat Cards */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+}
+.stat-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), #34d399);
+}
+.stat-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.stat-value {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--text);
+    font-family: var(--mono);
+}
+.stat-value.money { color: var(--primary); }
+.stat-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+
+/* Sections */
+.section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+.section-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.section-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+}
+.section-badge {
+    background: var(--primary-glow);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: var(--mono);
+}
+.section-body { padding: 20px 24px; }
+
+/* Grid Layout */
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+/* Chart */
+.chart-container { height: 200px; display: flex; align-items: flex-end; gap: 3px; }
+.chart-bar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: flex-end;
+}
+.chart-bar {
+    width: 100%;
+    background: linear-gradient(180deg, var(--primary), var(--primary-dim));
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+    transition: height 0.5s ease;
+    position: relative;
+    cursor: pointer;
+}
+.chart-bar:hover { opacity: 0.8; }
+.chart-bar .tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 10;
+    font-family: var(--mono);
+}
+.chart-bar:hover .tooltip { display: block; }
+.chart-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    writing-mode: vertical-lr;
+    transform: rotate(180deg);
+    max-height: 40px;
+    overflow: hidden;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+}
+td {
+    padding: 10px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    color: var(--text-dim);
+}
+tr:hover td { background: rgba(16,185,129,0.03); }
+td.mono { font-family: var(--mono); font-size: 12px; }
+td.money { color: var(--primary); font-family: var(--mono); font-weight: 600; }
+td.danger { color: var(--danger); }
+
+/* Budget Progress Bar */
+.budget-bar-wrap {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-deep);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.budget-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease, background 0.3s;
+}
+.budget-bar.green { background: linear-gradient(90deg, #10B981, #34d399); }
+.budget-bar.yellow { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
+.budget-bar.red { background: linear-gradient(90deg, #EF4444, #F87171); }
+.budget-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    font-family: var(--mono);
+}
+
+/* Model Badge */
+.model-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 600;
+}
+.model-badge.anthropic { background: rgba(204, 133, 61, 0.15); color: #CC853D; }
+.model-badge.openai { background: rgba(16, 163, 127, 0.15); color: #10A37F; }
+.model-badge.ollama { background: rgba(99, 102, 241, 0.15); color: #818CF8; }
+
+/* Status Badge */
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.status-badge.success { background: rgba(16,185,129,0.15); color: var(--primary); }
+.status-badge.error { background: rgba(239,68,68,0.15); color: var(--danger); }
+.status-badge.downgraded { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+}
+.empty-state .icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+.empty-state p { font-size: 14px; }
+
+/* Responsive */
+@media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+    .main { padding: 16px; }
+    .header { padding: 12px 16px; }
+}
+@media (max-width: 500px) {
+    .stats-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <div class="logo">$</div>
+        <div class="brand">Cost<span>Control</span></div>
+    </div>
+    <div class="header-right">
+        <div class="connection-dot" id="connDot" title="SSE Connected"></div>
+        <span class="version">v1.0.0</span>
+    </div>
+</div>
+
+<!-- Alert Banner -->
+<div class="alert-banner" id="alertBanner">
+    <span class="alert-icon">!</span>
+    <span class="alert-text" id="alertText"></span>
+    <button class="alert-dismiss" onclick="dismissAlert()">Dismiss</button>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+    <!-- Stat Cards -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">Spend Today</div>
+            <div class="stat-value money" id="spendToday">$0.0000</div>
+            <div class="stat-sub" id="spendTodaySub">Loading...</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Monthly Spend</div>
+            <div class="stat-value money" id="spendMonth">$0.0000</div>
+            <div class="stat-sub" id="spendMonthSub">This month</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Active Apps</div>
+            <div class="stat-value" id="activeApps">0</div>
+            <div class="stat-sub">Registered applications</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Requests Today</div>
+            <div class="stat-value" id="requestsToday">0</div>
+            <div class="stat-sub" id="totalRequestsSub">0 total</div>
+        </div>
+    </div>
+
+    <!-- Charts + Model Breakdown -->
+    <div class="grid-2">
+        <!-- Spend Trend Chart -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-title">Spend Trend (30 days)</span>
+                <span class="section-badge" id="trendTotal">$0.00</span>
+            </div>
+            <div class="section-body">
+                <div class="chart-container" id="trendChart">
+                    <div class="empty-state"><p>No data yet</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Model Breakdown -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-title">Model Usage (30 days)</span>
+            </div>
+            <div class="section-body">
+                <table id="modelTable">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Provider</th>
+                            <th>Requests</th>
+                            <th>Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modelBody">
+                        <tr><td colspan="4" class="empty-state"><p>No data yet</p></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Budget Table -->
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Applications & Budgets</span>
+            <span class="section-badge" id="appCount">0 apps</span>
+        </div>
+        <div class="section-body" style="padding: 0;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>App</th>
+                        <th>Status</th>
+                        <th>Spend Today</th>
+                        <th>Spend Month</th>
+                        <th>Monthly Budget</th>
+                        <th>Budget Usage</th>
+                        <th>Reqs Today</th>
+                    </tr>
+                </thead>
+                <tbody id="appBody">
+                    <tr><td colspan="7"><div class="empty-state"><p>No apps registered. Use CLI to register apps.</p></div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent Requests -->
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Recent Requests</span>
+            <span class="section-badge" id="reqBadge">last 50</span>
+        </div>
+        <div class="section-body" style="padding: 0;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>App</th>
+                        <th>Model</th>
+                        <th>Tokens</th>
+                        <th>Cost</th>
+                        <th>Latency</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="reqBody">
+                    <tr><td colspan="7"><div class="empty-state"><p>No requests yet</p></div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────
+let sseSource = null;
+let reconnectTimer = null;
+
+// ── Helpers ─────────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+function money(v) { return '$' + Number(v || 0).toFixed(4); }
+function moneyShort(v) { return '$' + Number(v || 0).toFixed(2); }
+function comma(n) { return Number(n || 0).toLocaleString(); }
+function pct(v) { return Math.min(100, Math.max(0, v)).toFixed(1) + '%'; }
+function timeAgo(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const s = Math.floor((now - d) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+}
+function providerClass(model) {
+    if (model.startsWith('claude')) return 'anthropic';
+    if (model.startsWith('gpt') || model.startsWith('o3') || model.startsWith('o4')) return 'openai';
+    return 'ollama';
+}
+
+// ── Data Fetch ──────────────────────────────────────────
+async function fetchData() {
+    try {
+        const [status, apps, trend, models, reqs, alerts] = await Promise.all([
+            fetch('/api/status').then(r => r.json()),
+            fetch('/api/apps').then(r => r.json()),
+            fetch('/api/analytics/trend').then(r => r.json()),
+            fetch('/api/analytics/models').then(r => r.json()),
+            fetch('/api/requests/recent?limit=50').then(r => r.json()),
+            fetch('/api/alerts').then(r => r.json()),
+        ]);
+        renderStats(status);
+        renderApps(apps.apps || []);
+        renderTrend(trend.trend || []);
+        renderModels(models.models || []);
+        renderRequests(reqs.requests || []);
+        renderAlerts(alerts.alerts || []);
+    } catch (e) {
+        console.error('Fetch error:', e);
+    }
+}
+
+// ── Renderers ───────────────────────────────────────────
+function renderStats(s) {
+    $('spendToday').textContent = money(s.spend_today);
+    $('spendMonth').textContent = money(s.spend_month);
+    $('activeApps').textContent = s.active_apps || 0;
+    $('requestsToday').textContent = comma(s.requests_today);
+    $('totalRequestsSub').textContent = comma(s.total_requests) + ' total';
+    $('spendTodaySub').textContent = 'Total: ' + money(s.total_spend);
+}
+
+function renderApps(apps) {
+    $('appCount').textContent = apps.length + ' apps';
+    if (!apps.length) {
+        $('appBody').innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>No apps registered yet</p></div></td></tr>';
+        return;
+    }
+    let html = '';
+    for (const a of apps) {
+        const budgetPct = a.budget_monthly > 0 ? (a.spend_month / a.budget_monthly * 100) : 0;
+        const barClass = budgetPct >= 100 ? 'red' : budgetPct >= 80 ? 'yellow' : 'green';
+        const budgetStr = a.budget_monthly > 0 ? moneyShort(a.budget_monthly) : 'No limit';
+        html += `<tr>
+            <td style="font-weight:600;color:var(--text)">${a.name}</td>
+            <td><span class="status-badge success">${a.status}</span></td>
+            <td class="money">${money(a.spend_today)}</td>
+            <td class="money">${money(a.spend_month)}</td>
+            <td class="mono">${budgetStr}</td>
+            <td>
+                ${a.budget_monthly > 0 ? `
+                <div class="budget-bar-wrap"><div class="budget-bar ${barClass}" style="width:${Math.min(100,budgetPct)}%"></div></div>
+                <div class="budget-text">${pct(budgetPct)}</div>
+                ` : '<span style="color:var(--text-muted)">--</span>'}
+            </td>
+            <td class="mono">${comma(a.requests_today)}</td>
+        </tr>`;
+    }
+    $('appBody').innerHTML = html;
+}
+
+function renderTrend(trend) {
+    const container = $('trendChart');
+    if (!trend.length) {
+        container.innerHTML = '<div class="empty-state"><p>No spend data yet</p></div>';
+        $('trendTotal').textContent = '$0.00';
+        return;
+    }
+    const maxCost = Math.max(...trend.map(d => d.total_cost || 0), 0.001);
+    const totalCost = trend.reduce((s, d) => s + (d.total_cost || 0), 0);
+    $('trendTotal').textContent = moneyShort(totalCost);
+
+    let html = '';
+    for (const d of trend) {
+        const h = Math.max(2, ((d.total_cost || 0) / maxCost) * 180);
+        const label = (d.date || '').slice(5);
+        html += `<div class="chart-bar-wrap">
+            <div class="chart-bar" style="height:${h}px">
+                <div class="tooltip">${d.date || ''}: ${money(d.total_cost)} (${comma(d.total_requests)} reqs)</div>
+            </div>
+            <div class="chart-label">${label}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+function renderModels(models) {
+    if (!models.length) {
+        $('modelBody').innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>No model data yet</p></div></td></tr>';
+        return;
+    }
+    let html = '';
+    for (const m of models) {
+        const cls = providerClass(m.model);
+        html += `<tr>
+            <td><span class="model-badge ${cls}">${m.model}</span></td>
+            <td style="color:var(--text-dim)">${m.provider}</td>
+            <td class="mono">${comma(m.request_count)}</td>
+            <td class="money">${money(m.total_cost)}</td>
+        </tr>`;
+    }
+    $('modelBody').innerHTML = html;
+}
+
+function renderRequests(reqs) {
+    if (!reqs.length) {
+        $('reqBody').innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>No requests yet</p></div></td></tr>';
+        return;
+    }
+    let html = '';
+    for (const r of reqs) {
+        const cls = providerClass(r.model);
+        let statusHtml;
+        if (r.downgraded) statusHtml = '<span class="status-badge downgraded">downgraded</span>';
+        else if (r.status === 'error') statusHtml = '<span class="status-badge error">error</span>';
+        else statusHtml = '<span class="status-badge success">ok</span>';
+
+        html += `<tr>
+            <td class="mono" style="white-space:nowrap">${timeAgo(r.created_at)}</td>
+            <td style="font-weight:600;color:var(--text)">${r.app_name || 'N/A'}</td>
+            <td><span class="model-badge ${cls}">${r.model}</span></td>
+            <td class="mono">${comma(r.total_tokens)}</td>
+            <td class="money">${money(r.cost_usd)}</td>
+            <td class="mono">${comma(r.latency_ms)}ms</td>
+            <td>${statusHtml}</td>
+        </tr>`;
+    }
+    $('reqBody').innerHTML = html;
+}
+
+function renderAlerts(alerts) {
+    const banner = $('alertBanner');
+    if (!alerts.length) {
+        banner.classList.remove('show');
+        return;
+    }
+    $('alertText').textContent = alerts[0].message + (alerts.length > 1 ? ` (+${alerts.length - 1} more)` : '');
+    banner.classList.add('show');
+}
+
+function dismissAlert() {
+    $('alertBanner').classList.remove('show');
+}
+
+// ── SSE ─────────────────────────────────────────────────
+function connectSSE() {
+    if (sseSource) sseSource.close();
+    sseSource = new EventSource('/api/events/stream');
+
+    sseSource.onopen = () => {
+        $('connDot').classList.remove('disconnected');
+        $('connDot').title = 'SSE Connected';
+    };
+
+    sseSource.onerror = () => {
+        $('connDot').classList.add('disconnected');
+        $('connDot').title = 'SSE Disconnected';
+        sseSource.close();
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectSSE, 3000);
+    };
+
+    sseSource.addEventListener('request_completed', () => fetchData());
+    sseSource.addEventListener('app_registered', () => fetchData());
+    sseSource.addEventListener('budget_updated', () => fetchData());
+    sseSource.addEventListener('app_deleted', () => fetchData());
+    sseSource.addEventListener('alert_acknowledged', () => fetchData());
+}
+
+// ── Init ────────────────────────────────────────────────
+fetchData();
+connectSSE();
+setInterval(fetchData, 30000);
+</script>
+</body>
+</html>
