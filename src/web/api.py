@@ -61,6 +61,60 @@ def _broadcast_sse(event: str, data: dict):
             pass
 
 
+# ── Nexus Protocol Endpoint ────────────────────────────────────────
+
+@app.post("/nexus/handle")
+async def nexus_handle(request: Request):
+    """Handle incoming NexusRequest from the Nexus protocol layer."""
+    import time, uuid
+    body = await request.json()
+    start = time.perf_counter_ns()
+    capability = body.get("capability", "")
+    query = body.get("query", "")
+    req_id = body.get("request_id", "")
+    from_agent = body.get("from_agent", "")
+    params = {**body.get("constraints", {}), **body.get("context", {})}
+
+    try:
+        if capability == "cost_tracking":
+            if analytics:
+                report = await analytics.daily_report()
+                answer = json.dumps(report, default=str)
+            else:
+                answer = "Analytics not initialized"
+            confidence = 0.95
+        elif capability == "budget_management":
+            if budget_mgr:
+                app_id = params.get("app_id")
+                if app_id:
+                    budgets = await budget_mgr.get_budget(app_id)
+                    answer = json.dumps(budgets, default=str) if budgets else "No budget found"
+                else:
+                    answer = "Provide app_id in constraints to manage budgets"
+            else:
+                answer = "Budget manager not initialized"
+            confidence = 0.95
+        else:
+            elapsed = (time.perf_counter_ns() - start) // 1_000_000
+            return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                    "from_agent": "costcontrol", "to_agent": from_agent,
+                    "status": "failed", "answer": "", "confidence": 0.0,
+                    "error": f"Unsupported capability: {capability}",
+                    "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
+
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                "from_agent": "costcontrol", "to_agent": from_agent,
+                "status": "completed", "answer": answer, "confidence": confidence,
+                "processing_ms": elapsed, "cost": 0.001, "sources": [], "meta": {"capability": capability}}
+    except Exception as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                "from_agent": "costcontrol", "to_agent": from_agent,
+                "status": "failed", "answer": "", "confidence": 0.0,
+                "error": str(e), "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
+
+
 # ── Dashboard ────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
