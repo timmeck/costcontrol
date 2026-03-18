@@ -31,13 +31,19 @@ class LLM:
                     return await self._anthropic(prompt, system, max_tokens)
                 else:
                     return await self._ollama(prompt, system, max_tokens)
+            except (TimeoutError, httpx.ConnectError, httpx.ReadError) as e:
+                self._failures += 1
+                log.warning(f"LLM network error (attempt {attempt + 1}): {type(e).__name__}: {e}")
+            except httpx.HTTPStatusError as e:
+                self._failures += 1
+                log.error(f"LLM HTTP {e.response.status_code} (attempt {attempt + 1}): {e}")
             except Exception as e:
                 self._failures += 1
-                log.warning(f"LLM attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    import asyncio
+                log.error(f"LLM unexpected error (attempt {attempt + 1}): {type(e).__name__}: {e}")
+            if attempt < 2:
+                import asyncio
 
-                    await asyncio.sleep(1.0 * (2**attempt))
+                await asyncio.sleep(1.0 * (2**attempt))
         return None
 
     async def _anthropic(self, prompt: str, system: str, max_tokens: int) -> str:
