@@ -16,7 +16,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Allow public GET endpoints
         if request.method == "GET" and request.url.path in (
-            "/", "/api/status", "/api/events/stream",
+            "/",
+            "/api/status",
+            "/api/events/stream",
         ):
             return await call_next(request)
 

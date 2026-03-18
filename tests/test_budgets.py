@@ -1,7 +1,5 @@
 """Tests for budget management."""
 
-import pytest
-
 from src.proxy.budgets import BudgetManager
 
 
@@ -22,8 +20,13 @@ class TestBudgetCheck:
         # Record enough requests to exceed daily budget of $10
         for _ in range(20):
             await db.record_request(
-                sample_app["id"], "claude-opus-4-6", "anthropic",
-                10000, 5000, 0.6, 1000,
+                sample_app["id"],
+                "claude-opus-4-6",
+                "anthropic",
+                10000,
+                5000,
+                0.6,
+                1000,
             )
         status = await mgr.check_budget(sample_app["id"])
         assert status["within_budget"] is False
@@ -35,8 +38,13 @@ class TestBudgetCheck:
         # Record enough to exceed $100 monthly budget
         for _ in range(20):
             await db.record_request(
-                sample_app["id"], "claude-opus-4-6", "anthropic",
-                50000, 20000, 5.5, 1000,
+                sample_app["id"],
+                "claude-opus-4-6",
+                "anthropic",
+                50000,
+                20000,
+                5.5,
+                1000,
             )
         status = await mgr.check_budget(sample_app["id"])
         assert status["within_budget"] is False
@@ -46,8 +54,13 @@ class TestBudgetCheck:
         mgr = BudgetManager(db)
         # Even with spend, no budget means always within
         await db.record_request(
-            sample_app_no_budget["id"], "claude-opus-4-6", "anthropic",
-            100000, 50000, 50.0, 2000,
+            sample_app_no_budget["id"],
+            "claude-opus-4-6",
+            "anthropic",
+            100000,
+            50000,
+            50.0,
+            2000,
         )
         status = await mgr.check_budget(sample_app_no_budget["id"])
         assert status["within_budget"] is True
@@ -63,8 +76,13 @@ class TestBudgetCheck:
         mgr = BudgetManager(db)
         # Spend $5 against $10 daily budget = 50%
         await db.record_request(
-            sample_app["id"], "claude-sonnet-4-6", "anthropic",
-            10000, 5000, 5.0, 1000,
+            sample_app["id"],
+            "claude-sonnet-4-6",
+            "anthropic",
+            10000,
+            5000,
+            5.0,
+            1000,
         )
         status = await mgr.check_budget(sample_app["id"])
         assert status["daily_pct"] == 50.0
@@ -87,8 +105,13 @@ class TestAlertGeneration:
         mgr = BudgetManager(db)
         # Spend $8.50 against $10 daily budget = 85%
         await db.record_request(
-            sample_app["id"], "claude-opus-4-6", "anthropic",
-            10000, 5000, 8.5, 1000,
+            sample_app["id"],
+            "claude-opus-4-6",
+            "anthropic",
+            10000,
+            5000,
+            8.5,
+            1000,
         )
         alerts = await mgr.check_and_alert(sample_app["id"])
         # Should get 80% alert for daily
@@ -99,8 +122,13 @@ class TestAlertGeneration:
         mgr = BudgetManager(db)
         # Exceed daily budget
         await db.record_request(
-            sample_app["id"], "claude-opus-4-6", "anthropic",
-            10000, 5000, 11.0, 1000,
+            sample_app["id"],
+            "claude-opus-4-6",
+            "anthropic",
+            10000,
+            5000,
+            11.0,
+            1000,
         )
         alerts = await mgr.check_and_alert(sample_app["id"])
         exceeded = [a for a in alerts if "exceeded" in a["alert_type"]]
@@ -109,10 +137,15 @@ class TestAlertGeneration:
     async def test_no_duplicate_alerts(self, db, sample_app):
         mgr = BudgetManager(db)
         await db.record_request(
-            sample_app["id"], "claude-opus-4-6", "anthropic",
-            10000, 5000, 8.5, 1000,
+            sample_app["id"],
+            "claude-opus-4-6",
+            "anthropic",
+            10000,
+            5000,
+            8.5,
+            1000,
         )
-        alerts1 = await mgr.check_and_alert(sample_app["id"])
+        await mgr.check_and_alert(sample_app["id"])
         alerts2 = await mgr.check_and_alert(sample_app["id"])
         # Second call should not create duplicate alerts
         assert len(alerts2) == 0

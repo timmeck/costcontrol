@@ -77,8 +77,13 @@ class TestBudgetEnforcementInProxy:
         # Exceed daily budget
         for _ in range(3):
             await db.record_request(
-                sample_app["id"], "claude-opus-4-6", "anthropic",
-                10000, 5000, 5.0, 1000,
+                sample_app["id"],
+                "claude-opus-4-6",
+                "anthropic",
+                10000,
+                5000,
+                5.0,
+                1000,
             )
         # Now check budget status
         status = await engine.budget_mgr.check_budget(sample_app["id"])
@@ -89,22 +94,33 @@ class TestBudgetEnforcementInProxy:
         engine = ProxyEngine(db)
         # Small spend
         await db.record_request(
-            sample_app["id"], "gpt-4o-mini", "openai",
-            1000, 500, 0.001, 500,
+            sample_app["id"],
+            "gpt-4o-mini",
+            "openai",
+            1000,
+            500,
+            0.001,
+            500,
         )
         status = await engine.budget_mgr.check_budget(sample_app["id"])
         assert status["should_downgrade"] is False
 
     async def test_no_downgrade_for_free_model(self, db, sample_app):
-        engine = ProxyEngine(db)
+        ProxyEngine(db)
         # Even if over budget, free models don't need downgrade
         for _ in range(3):
             await db.record_request(
-                sample_app["id"], "claude-opus-4-6", "anthropic",
-                10000, 5000, 5.0, 1000,
+                sample_app["id"],
+                "claude-opus-4-6",
+                "anthropic",
+                10000,
+                5000,
+                5.0,
+                1000,
             )
         # The proxy would check is_free_model before downgrading
         from src.proxy.pricing import is_free_model
+
         assert is_free_model("qwen3:14b") is True
 
 

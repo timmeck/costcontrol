@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.config import COSTCONTROL_PORT, DB_PATH, NEXUS_URL
@@ -52,12 +52,24 @@ app = FastAPI(title="CostControl", version="1.0.0", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 
 nexus = NexusAdapter(
-    app=app, agent_name="costcontrol", nexus_url=NEXUS_URL,
+    app=app,
+    agent_name="costcontrol",
+    nexus_url=NEXUS_URL,
     endpoint=f"http://localhost:{COSTCONTROL_PORT}",
     description="LLM Cost Controller — token tracking, budgets, cost analytics",
     capabilities=[
-        {"name": "cost_tracking", "description": "Track and report LLM API costs", "languages": ["en"], "price_per_request": 0.001},
-        {"name": "budget_management", "description": "Manage per-app LLM budgets", "languages": ["en"], "price_per_request": 0.001},
+        {
+            "name": "cost_tracking",
+            "description": "Track and report LLM API costs",
+            "languages": ["en"],
+            "price_per_request": 0.001,
+        },
+        {
+            "name": "budget_management",
+            "description": "Manage per-app LLM budgets",
+            "languages": ["en"],
+            "price_per_request": 0.001,
+        },
     ],
     tags=["cost", "budget", "analytics", "llm"],
 )
@@ -96,6 +108,7 @@ def _broadcast_sse(event: str, data: dict):
 
 # ── Dashboard ────────────────────────────────────────────────
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     """Serve the dashboard HTML."""
@@ -104,6 +117,7 @@ async def dashboard():
 
 
 # ── SSE Stream ───────────────────────────────────────────────
+
 
 @app.get("/api/events/stream")
 async def event_stream(request: Request):
@@ -119,7 +133,7 @@ async def event_stream(request: Request):
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield msg
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield {"event": "ping", "data": "{}"}
         finally:
             sse_clients.remove(queue)
@@ -129,6 +143,7 @@ async def event_stream(request: Request):
 
 # ── Status ───────────────────────────────────────────────────
 
+
 @app.get("/api/status")
 async def get_status():
     """Get system status and stats."""
@@ -137,6 +152,7 @@ async def get_status():
 
 
 # ── Apps ─────────────────────────────────────────────────────
+
 
 @app.get("/api/apps")
 async def list_apps():
@@ -164,8 +180,11 @@ async def register_app(request: Request):
     fallback_model = body.get("fallback_model", "qwen3:14b")
 
     app_data = await db.create_app(
-        name=name, api_key=api_key, budget_monthly=budget_monthly,
-        budget_daily=budget_daily, auto_downgrade=auto_downgrade,
+        name=name,
+        api_key=api_key,
+        budget_monthly=budget_monthly,
+        budget_daily=budget_daily,
+        auto_downgrade=auto_downgrade,
         fallback_model=fallback_model,
     )
 
@@ -200,6 +219,7 @@ async def delete_app(app_id: int):
 
 # ── Proxy ────────────────────────────────────────────────────
 
+
 @app.post("/api/proxy/chat")
 async def proxy_chat(request: Request):
     """Proxy a chat completion request through CostControl.
@@ -228,8 +248,11 @@ async def proxy_chat(request: Request):
 
     try:
         result = await engine.proxy_chat(
-            app_key=app_key, model=model, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
+            app_key=app_key,
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -237,11 +260,14 @@ async def proxy_chat(request: Request):
         log.error(f"Proxy error: {e}")
         raise HTTPException(502, f"LLM provider error: {e}")
 
-    _broadcast_sse("request_completed", {
-        "model": result["model"],
-        "cost_usd": result["cost_usd"],
-        "downgraded": result["downgraded"],
-    })
+    _broadcast_sse(
+        "request_completed",
+        {
+            "model": result["model"],
+            "cost_usd": result["cost_usd"],
+            "downgraded": result["downgraded"],
+        },
+    )
 
     return result
 
@@ -259,6 +285,7 @@ async def estimate_cost(request: Request):
 
 
 # ── Analytics ────────────────────────────────────────────────
+
 
 @app.get("/api/analytics/daily")
 async def daily_report():
@@ -297,6 +324,7 @@ async def model_breakdown():
 
 # ── Requests ─────────────────────────────────────────────────
 
+
 @app.get("/api/requests/recent")
 async def recent_requests(limit: int = 50, app_id: int | None = None):
     """Get recent requests."""
@@ -305,6 +333,7 @@ async def recent_requests(limit: int = 50, app_id: int | None = None):
 
 
 # ── Alerts ───────────────────────────────────────────────────
+
 
 @app.get("/api/alerts")
 async def get_alerts(app_id: int | None = None):
@@ -325,6 +354,7 @@ async def acknowledge_alert(alert_id: int):
 
 # ── Budget Status ────────────────────────────────────────────
 
+
 @app.get("/api/budgets")
 async def get_budgets():
     """Get budget status for all apps."""
@@ -333,6 +363,7 @@ async def get_budgets():
 
 
 # ── Pricing ──────────────────────────────────────────────────
+
 
 @app.get("/api/pricing")
 async def get_pricing():

@@ -40,9 +40,7 @@ class Analytics:
         total_week_requests = sum(d.get("total_requests", 0) for d in daily_costs)
         total_week_tokens = sum(d.get("total_tokens", 0) for d in daily_costs)
 
-        avg_cost_per_request = (
-            total_week_spend / total_week_requests if total_week_requests > 0 else 0
-        )
+        avg_cost_per_request = total_week_spend / total_week_requests if total_week_requests > 0 else 0
 
         return {
             "report_type": "weekly",
@@ -69,9 +67,7 @@ class Analytics:
         total_month_requests = sum(d.get("total_requests", 0) for d in daily_costs)
         total_month_tokens = sum(d.get("total_tokens", 0) for d in daily_costs)
 
-        avg_cost_per_request = (
-            total_month_spend / total_month_requests if total_month_requests > 0 else 0
-        )
+        avg_cost_per_request = total_month_spend / total_month_requests if total_month_requests > 0 else 0
 
         # Find most expensive app
         most_expensive_app = None
@@ -150,10 +146,7 @@ class Analytics:
         if data.get("model_breakdown"):
             lines.append("--- Model Breakdown ---")
             for m in data["model_breakdown"]:
-                lines.append(
-                    f"  {m['model']} ({m['provider']}): "
-                    f"{m['request_count']} reqs, ${m['total_cost']:.4f}"
-                )
+                lines.append(f"  {m['model']} ({m['provider']}): {m['request_count']} reqs, ${m['total_cost']:.4f}")
             lines.append("")
 
         if data.get("alerts"):

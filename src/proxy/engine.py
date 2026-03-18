@@ -4,7 +4,7 @@ import time
 
 import httpx
 
-from src.config import ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_URL
+from src.config import ANTHROPIC_API_KEY, OLLAMA_URL, OPENAI_API_KEY
 from src.db.database import Database
 from src.proxy.budgets import BudgetManager
 from src.proxy.pricing import calculate_cost, get_provider, is_free_model
@@ -20,9 +20,9 @@ class ProxyEngine:
         self.db = db
         self.budget_mgr = BudgetManager(db)
 
-    async def proxy_chat(self, app_key: str, model: str,
-                         messages: list[dict], max_tokens: int = 2000,
-                         temperature: float = 0.7) -> dict:
+    async def proxy_chat(
+        self, app_key: str, model: str, messages: list[dict], max_tokens: int = 2000, temperature: float = 0.7
+    ) -> dict:
         """Proxy a chat completion request.
 
         1. Look up the app by API key
@@ -52,13 +52,12 @@ class ProxyEngine:
         budget_status = await self.budget_mgr.check_budget(app_id)
         if budget_status["should_downgrade"] and not is_free_model(model):
             fallback = budget_status.get("fallback_model", "qwen3:14b")
-            log.warning(
-                f"App '{app['name']}' over budget — downgrading from {model} to {fallback}"
-            )
+            log.warning(f"App '{app['name']}' over budget — downgrading from {model} to {fallback}")
             model = fallback
             downgraded = True
             await self.db.log_activity(
-                app_id, "auto_downgrade",
+                app_id,
+                "auto_downgrade",
                 f"Auto-downgraded from {original_model} to {model} (budget exceeded)",
             )
 
@@ -76,8 +75,15 @@ class ProxyEngine:
         except Exception as e:
             latency_ms = int((time.monotonic() - start) * 1000)
             await self.db.record_request(
-                app_id, model, provider, 0, 0, 0.0, latency_ms,
-                status="error", downgraded=downgraded,
+                app_id,
+                model,
+                provider,
+                0,
+                0,
+                0.0,
+                latency_ms,
+                status="error",
+                downgraded=downgraded,
             )
             log.error(f"LLM call failed for app '{app['name']}': {e}")
             raise
@@ -91,8 +97,15 @@ class ProxyEngine:
 
         # 5. Store in DB
         await self.db.record_request(
-            app_id, model, provider, input_tokens, output_tokens,
-            cost_usd, latency_ms, status="success", downgraded=downgraded,
+            app_id,
+            model,
+            provider,
+            input_tokens,
+            output_tokens,
+            cost_usd,
+            latency_ms,
+            status="success",
+            downgraded=downgraded,
         )
 
         # 6. Check alerts after recording
@@ -110,13 +123,13 @@ class ProxyEngine:
             "latency_ms": latency_ms,
         }
 
-    async def _call_anthropic(self, model: str, messages: list[dict],
-                              max_tokens: int, temperature: float) -> dict:
+    async def _call_anthropic(self, model: str, messages: list[dict], max_tokens: int, temperature: float) -> dict:
         """Call Anthropic Claude API."""
         if not ANTHROPIC_API_KEY:
             raise ValueError("ANTHROPIC_API_KEY not configured")
 
         import anthropic
+
         client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
         # Extract system message if present
@@ -145,13 +158,13 @@ class ProxyEngine:
             "output_tokens": resp.usage.output_tokens,
         }
 
-    async def _call_openai(self, model: str, messages: list[dict],
-                           max_tokens: int, temperature: float) -> dict:
+    async def _call_openai(self, model: str, messages: list[dict], max_tokens: int, temperature: float) -> dict:
         """Call OpenAI API."""
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not configured")
 
         import openai
+
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
         resp = await client.chat.completions.create(
@@ -172,8 +185,7 @@ class ProxyEngine:
             "output_tokens": output_tokens,
         }
 
-    async def _call_ollama(self, model: str, messages: list[dict],
-                           max_tokens: int, temperature: float) -> dict:
+    async def _call_ollama(self, model: str, messages: list[dict], max_tokens: int, temperature: float) -> dict:
         """Call Ollama local API."""
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
@@ -208,8 +220,7 @@ class ProxyEngine:
             "output_tokens": output_tokens,
         }
 
-    async def estimate_cost(self, model: str, messages: list[dict],
-                            max_tokens: int = 2000) -> dict:
+    async def estimate_cost(self, model: str, messages: list[dict], max_tokens: int = 2000) -> dict:
         """Estimate cost for a request without executing it."""
         # Rough token estimate: ~1.3 tokens per word
         input_text = " ".join(m.get("content", "") for m in messages)

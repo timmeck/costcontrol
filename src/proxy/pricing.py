@@ -87,11 +87,13 @@ def list_models() -> list[dict]:
     """List all known models with their pricing info."""
     result = []
     for model, prices in PRICING.items():
-        result.append({
-            "model": model,
-            "provider": get_provider(model),
-            "input_per_million": prices["input"],
-            "output_per_million": prices["output"],
-            "free": prices["input"] == 0 and prices["output"] == 0,
-        })
+        result.append(
+            {
+                "model": model,
+                "provider": get_provider(model),
+                "input_per_million": prices["input"],
+                "output_per_million": prices["output"],
+                "free": prices["input"] == 0 and prices["output"] == 0,
+            }
+        )
     return result

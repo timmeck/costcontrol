@@ -1,7 +1,7 @@
 """SQLite database layer for CostControl — async with aiosqlite + WAL mode."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -79,11 +79,11 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 class Database:
@@ -116,25 +116,37 @@ class Database:
 
     # ── Apps ─────────────────────────────────────────────────────
 
-    async def create_app(self, name: str, api_key: str, budget_monthly: float = 0,
-                         budget_daily: float = 0, auto_downgrade: bool = True,
-                         fallback_model: str = "qwen3:14b") -> dict:
+    async def create_app(
+        self,
+        name: str,
+        api_key: str,
+        budget_monthly: float = 0,
+        budget_daily: float = 0,
+        auto_downgrade: bool = True,
+        fallback_model: str = "qwen3:14b",
+    ) -> dict:
         """Register a new application."""
         now = _now()
         cursor = await self.db.execute(
             """INSERT INTO apps (name, api_key, budget_monthly, budget_daily,
                auto_downgrade, fallback_model, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, api_key, budget_monthly, budget_daily,
-             1 if auto_downgrade else 0, fallback_model, now),
+            (name, api_key, budget_monthly, budget_daily, 1 if auto_downgrade else 0, fallback_model, now),
         )
         await self.db.commit()
         app_id = cursor.lastrowid
         await self.log_activity(app_id, "app_registered", f"App '{name}' registered")
-        return {"id": app_id, "name": name, "api_key": api_key,
-                "budget_monthly": budget_monthly, "budget_daily": budget_daily,
-                "auto_downgrade": auto_downgrade, "fallback_model": fallback_model,
-                "status": "active", "created_at": now}
+        return {
+            "id": app_id,
+            "name": name,
+            "api_key": api_key,
+            "budget_monthly": budget_monthly,
+            "budget_daily": budget_daily,
+            "auto_downgrade": auto_downgrade,
+            "fallback_model": fallback_model,
+            "status": "active",
+            "created_at": now,
+        }
 
     async def get_app_by_key(self, api_key: str) -> dict | None:
         """Look up an app by its API key."""
@@ -160,8 +172,9 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
-    async def update_app_budget(self, app_id: int, budget_monthly: float | None = None,
-                                budget_daily: float | None = None) -> bool:
+    async def update_app_budget(
+        self, app_id: int, budget_monthly: float | None = None, budget_daily: float | None = None
+    ) -> bool:
         """Update budget for an app."""
         fields = []
         vals = []
@@ -176,8 +189,9 @@ class Database:
         vals.append(app_id)
         await self.db.execute(f"UPDATE apps SET {', '.join(fields)} WHERE id = ?", vals)
         await self.db.commit()
-        await self.log_activity(app_id, "budget_updated",
-                                f"Budget updated: monthly={budget_monthly}, daily={budget_daily}")
+        await self.log_activity(
+            app_id, "budget_updated", f"Budget updated: monthly={budget_monthly}, daily={budget_daily}"
+        )
         return True
 
     async def delete_app(self, app_id: int) -> bool:
@@ -188,10 +202,18 @@ class Database:
 
     # ── Requests ─────────────────────────────────────────────────
 
-    async def record_request(self, app_id: int, model: str, provider: str,
-                             input_tokens: int, output_tokens: int, cost_usd: float,
-                             latency_ms: int, status: str = "success",
-                             downgraded: bool = False) -> dict:
+    async def record_request(
+        self,
+        app_id: int,
+        model: str,
+        provider: str,
+        input_tokens: int,
+        output_tokens: int,
+        cost_usd: float,
+        latency_ms: int,
+        status: str = "success",
+        downgraded: bool = False,
+    ) -> dict:
         """Record an LLM request."""
         now = _now()
         total_tokens = input_tokens + output_tokens
@@ -199,16 +221,36 @@ class Database:
             """INSERT INTO requests (app_id, model, provider, input_tokens, output_tokens,
                total_tokens, cost_usd, latency_ms, status, downgraded, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (app_id, model, provider, input_tokens, output_tokens, total_tokens,
-             cost_usd, latency_ms, status, 1 if downgraded else 0, now),
+            (
+                app_id,
+                model,
+                provider,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cost_usd,
+                latency_ms,
+                status,
+                1 if downgraded else 0,
+                now,
+            ),
         )
         await self.db.commit()
         await self._update_daily_cost(app_id, model, input_tokens + output_tokens, cost_usd)
-        return {"id": cursor.lastrowid, "app_id": app_id, "model": model,
-                "provider": provider, "input_tokens": input_tokens,
-                "output_tokens": output_tokens, "total_tokens": total_tokens,
-                "cost_usd": cost_usd, "latency_ms": latency_ms, "status": status,
-                "downgraded": downgraded, "created_at": now}
+        return {
+            "id": cursor.lastrowid,
+            "app_id": app_id,
+            "model": model,
+            "provider": provider,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": cost_usd,
+            "latency_ms": latency_ms,
+            "status": status,
+            "downgraded": downgraded,
+            "created_at": now,
+        }
 
     async def get_recent_requests(self, limit: int = 50, app_id: int | None = None) -> list[dict]:
         """Get recent requests, optionally filtered by app."""
@@ -296,8 +338,9 @@ class Database:
 
     # ── Alerts ───────────────────────────────────────────────────
 
-    async def create_alert(self, app_id: int, alert_type: str, message: str,
-                           threshold: float = 0, current_value: float = 0) -> dict:
+    async def create_alert(
+        self, app_id: int, alert_type: str, message: str, threshold: float = 0, current_value: float = 0
+    ) -> dict:
         """Create a budget alert."""
         now = _now()
         cursor = await self.db.execute(
@@ -306,9 +349,16 @@ class Database:
             (app_id, alert_type, message, threshold, current_value, now),
         )
         await self.db.commit()
-        return {"id": cursor.lastrowid, "app_id": app_id, "alert_type": alert_type,
-                "message": message, "threshold": threshold, "current_value": current_value,
-                "acknowledged": 0, "created_at": now}
+        return {
+            "id": cursor.lastrowid,
+            "app_id": app_id,
+            "alert_type": alert_type,
+            "message": message,
+            "threshold": threshold,
+            "current_value": current_value,
+            "acknowledged": 0,
+            "created_at": now,
+        }
 
     async def get_unacknowledged_alerts(self, app_id: int | None = None) -> list[dict]:
         """Get unacknowledged alerts."""
@@ -332,15 +382,15 @@ class Database:
     async def acknowledge_alert(self, alert_id: int) -> bool:
         """Acknowledge an alert."""
         cursor = await self.db.execute(
-            "UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,),
+            "UPDATE alerts SET acknowledged = 1 WHERE id = ?",
+            (alert_id,),
         )
         await self.db.commit()
         return cursor.rowcount > 0
 
     # ── Activity Log ─────────────────────────────────────────────
 
-    async def log_activity(self, app_id: int | None, event_type: str,
-                           message: str, data: dict | None = None):
+    async def log_activity(self, app_id: int | None, event_type: str, message: str, data: dict | None = None):
         """Log an activity event."""
         now = _now()
         await self.db.execute(

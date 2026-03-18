@@ -3,10 +3,8 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.web.api import app, db as app_db
 from src.db.database import Database
-import tempfile
-from pathlib import Path
+from src.web.api import app
 
 
 @pytest.fixture
@@ -24,9 +22,9 @@ async def client(tmp_db_path):
     original_analytics = api_module.analytics
     original_budget_mgr = api_module.budget_mgr
 
-    from src.proxy.engine import ProxyEngine
     from src.proxy.analytics import Analytics
     from src.proxy.budgets import BudgetManager
+    from src.proxy.engine import ProxyEngine
 
     api_module.db = test_db
     api_module.engine = ProxyEngine(test_db)
@@ -62,11 +60,14 @@ class TestAppsEndpoints:
     """Test app registration and listing."""
 
     async def test_register_app(self, client):
-        resp = await client.post("/api/apps/register", json={
-            "name": "test-app",
-            "budget_monthly": 100.0,
-            "budget_daily": 10.0,
-        })
+        resp = await client.post(
+            "/api/apps/register",
+            json={
+                "name": "test-app",
+                "budget_monthly": 100.0,
+                "budget_daily": 10.0,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["app"]["name"] == "test-app"
@@ -93,10 +94,13 @@ class TestAppsEndpoints:
     async def test_set_budget(self, client):
         reg = await client.post("/api/apps/register", json={"name": "budget-app"})
         app_id = reg.json()["app"]["id"]
-        resp = await client.post(f"/api/apps/{app_id}/budget", json={
-            "budget_monthly": 200.0,
-            "budget_daily": 20.0,
-        })
+        resp = await client.post(
+            f"/api/apps/{app_id}/budget",
+            json={
+                "budget_monthly": 200.0,
+                "budget_daily": 20.0,
+            },
+        )
         assert resp.status_code == 200
 
     async def test_delete_app(self, client):

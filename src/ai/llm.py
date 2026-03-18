@@ -21,8 +21,9 @@ class LLM:
     def is_healthy(self) -> bool:
         return self._failures < self._max_failures
 
-    async def query(self, prompt: str, system: str = "You are a helpful assistant.",
-                    max_tokens: int = 2000) -> str | None:
+    async def query(
+        self, prompt: str, system: str = "You are a helpful assistant.", max_tokens: int = 2000
+    ) -> str | None:
         """Query the LLM with retry logic."""
         for attempt in range(3):
             try:
@@ -35,12 +36,14 @@ class LLM:
                 log.warning(f"LLM attempt {attempt + 1} failed: {e}")
                 if attempt < 2:
                     import asyncio
-                    await asyncio.sleep(1.0 * (2 ** attempt))
+
+                    await asyncio.sleep(1.0 * (2**attempt))
         return None
 
     async def _anthropic(self, prompt: str, system: str, max_tokens: int) -> str:
         """Call Anthropic Claude."""
         import anthropic
+
         client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
         resp = await client.messages.create(
             model=self.model,

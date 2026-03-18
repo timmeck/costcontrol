@@ -1,7 +1,5 @@
 """Tests for the pricing module."""
 
-import pytest
-
 from src.proxy.pricing import (
     PRICING,
     calculate_cost,

@@ -2,8 +2,6 @@
 
 import pytest
 
-from src.db.database import Database
-
 
 class TestAppsCRUD:
     """Test app creation, retrieval, update, and deletion."""
@@ -69,9 +67,13 @@ class TestRequests:
 
     async def test_record_request(self, db, sample_app):
         req = await db.record_request(
-            app_id=sample_app["id"], model="claude-sonnet-4-6",
-            provider="anthropic", input_tokens=1000, output_tokens=500,
-            cost_usd=0.0105, latency_ms=1200,
+            app_id=sample_app["id"],
+            model="claude-sonnet-4-6",
+            provider="anthropic",
+            input_tokens=1000,
+            output_tokens=500,
+            cost_usd=0.0105,
+            latency_ms=1200,
         )
         assert req["total_tokens"] == 1500
         assert req["cost_usd"] == 0.0105
@@ -117,7 +119,11 @@ class TestAlerts:
 
     async def test_create_alert(self, db, sample_app):
         alert = await db.create_alert(
-            sample_app["id"], "monthly_budget", "Budget warning", 0.8, 80.0,
+            sample_app["id"],
+            "monthly_budget",
+            "Budget warning",
+            0.8,
+            80.0,
         )
         assert alert["alert_type"] == "monthly_budget"
         assert alert["acknowledged"] == 0

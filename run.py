@@ -25,6 +25,7 @@ def cli():
 @cli.command()
 def status():
     """Show system status."""
+
     async def _status():
         db = Database(DB_PATH)
         await db.connect()
@@ -49,6 +50,7 @@ def status():
 @cli.command()
 def apps():
     """List registered apps."""
+
     async def _apps():
         db = Database(DB_PATH)
         await db.connect()
@@ -57,10 +59,12 @@ def apps():
             if not app_list:
                 click.echo("\nNo apps registered. Use 'python run.py register <name>' to add one.\n")
                 return
-            click.echo(f"\n{'Name':<20} {'Monthly Budget':<16} {'Spend (Month)':<16} {'Spend (Today)':<16} {'Reqs Today':<12} {'Status'}")
+            click.echo(
+                f"\n{'Name':<20} {'Monthly Budget':<16} {'Spend (Month)':<16} {'Spend (Today)':<16} {'Reqs Today':<12} {'Status'}"
+            )
             click.echo("-" * 96)
             for a in app_list:
-                budget = f"${a['budget_monthly']:.2f}" if a['budget_monthly'] > 0 else "none"
+                budget = f"${a['budget_monthly']:.2f}" if a["budget_monthly"] > 0 else "none"
                 click.echo(
                     f"{a['name']:<20} {budget:<16} "
                     f"${a['spend_month']:.4f}{'':<10} "
@@ -80,6 +84,7 @@ def apps():
 @click.option("--daily", default=0.0, help="Daily budget in USD")
 def register(name, monthly, daily):
     """Register a new app."""
+
     async def _register():
         db = Database(DB_PATH)
         await db.connect()
@@ -90,15 +95,17 @@ def register(name, monthly, daily):
                 return
             api_key = f"cc_{secrets.token_hex(24)}"
             app_data = await db.create_app(
-                name=name, api_key=api_key,
-                budget_monthly=monthly, budget_daily=daily,
+                name=name,
+                api_key=api_key,
+                budget_monthly=monthly,
+                budget_daily=daily,
             )
-            click.echo(f"\n=== App Registered ===")
+            click.echo("\n=== App Registered ===")
             click.echo(f"  Name:     {app_data['name']}")
             click.echo(f"  API Key:  {app_data['api_key']}")
             click.echo(f"  Monthly:  ${monthly:.2f}")
             click.echo(f"  Daily:    ${daily:.2f}")
-            click.echo(f"\nUse this API key in your app's requests to the proxy.\n")
+            click.echo("\nUse this API key in your app's requests to the proxy.\n")
         finally:
             await db.close()
 
@@ -111,6 +118,7 @@ def register(name, monthly, daily):
 @click.option("--daily", default=None, type=float, help="Daily budget in USD")
 def budget(app_name, monthly, daily):
     """Set budget for an app."""
+
     async def _budget():
         db = Database(DB_PATH)
         await db.connect()
@@ -137,10 +145,10 @@ def budget(app_name, monthly, daily):
 
 
 @cli.command()
-@click.option("--type", "report_type", default="daily",
-              type=click.Choice(["daily", "weekly", "monthly"]))
+@click.option("--type", "report_type", default="daily", type=click.Choice(["daily", "weekly", "monthly"]))
 def report(report_type):
     """Show spending report."""
+
     async def _report():
         db = Database(DB_PATH)
         await db.connect()
@@ -160,6 +168,7 @@ def report(report_type):
 def serve(host, port):
     """Start the CostControl dashboard server."""
     import uvicorn
+
     click.echo(f"\nStarting CostControl on http://{host}:{port}\n")
     uvicorn.run("src.web.api:app", host=host, port=port, reload=False)
 
