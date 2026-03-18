@@ -82,6 +82,17 @@ COSTCONTROL_PORT=8600
 COSTCONTROL_API_KEY=optional_admin_key
 ```
 
+## Nexus Protocol
+
+CostControl integrates with [Nexus](https://github.com/timmeck/nexus) via the NexusAdapter SDK.
+
+| Capability | Description | Price |
+|-----------|-------------|-------|
+| `cost_tracking` | Track and report LLM API costs | 0.001 |
+| `budget_management` | Manage per-app LLM budgets | 0.001 |
+
+**Features**: HMAC signature verification, automatic heartbeats (30s), auto-registration with Nexus on startup.
+
 ## License
 
 MIT
