@@ -326,6 +326,63 @@ td.danger { color: var(--danger); }
 @media (max-width: 500px) {
     .stats-row { grid-template-columns: 1fr; }
 }
+
+/* ═══ Professional Upgrade: CostControl (#69F0AE) ═══ */
+:root {
+    --primary: #69F0AE;
+    --primary-dim: #4caf50;
+    --primary-glow: rgba(105, 240, 174, 0.15);
+}
+
+/* Better typography */
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+/* Improved cards */
+.stat-card, .section {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border-radius: 12px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.stat-card:hover {
+    box-shadow: 0 8px 24px rgba(105, 240, 174, 0.08), 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* Card fade-in animation */
+@keyframes cardFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.stat-card { animation: cardFadeIn 0.4s ease both; }
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.1s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.2s; }
+.section { animation: cardFadeIn 0.4s ease both; animation-delay: 0.25s; }
+
+/* Better table styling */
+tr:nth-child(even) td { background: rgba(105, 240, 174, 0.015); }
+tr:hover td { background: rgba(105, 240, 174, 0.04); }
+th { position: sticky; top: 0; background: var(--bg-card); z-index: 5; }
+
+/* Status indicators */
+.connection-dot { background: #69F0AE; box-shadow: 0 0 8px #69F0AE; }
+.status-badge.success { background: rgba(105, 240, 174, 0.15); color: #69F0AE; }
+
+/* Better stat card top bar */
+.stat-card::before { background: linear-gradient(90deg, #69F0AE, #4caf50); }
+
+/* Logo accent */
+.brand span { color: #69F0AE; }
+.logo { background: linear-gradient(135deg, #69F0AE, #4caf50); }
+
+/* Chart bars */
+.chart-bar { background: linear-gradient(180deg, #69F0AE, #4caf50); }
+
+/* Budget bars */
+.budget-bar.green { background: linear-gradient(90deg, #69F0AE, #4caf50); }
+
+/* Better stat values */
+.stat-value.money { color: #69F0AE; }
 </style>
 </head>
 <body>
