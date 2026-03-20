@@ -220,6 +220,75 @@ async def delete_app(app_id: int):
 # ── Proxy ────────────────────────────────────────────────────
 
 
+@app.post("/v1/chat/completions")
+async def openai_compatible_proxy(request: Request):
+    """OpenAI-compatible proxy endpoint -- drop-in replacement.
+
+    Accepts standard OpenAI chat completions format with Bearer token auth.
+    The Bearer token should be a CostControl app API key (cc_...).
+    """
+    body = await request.json()
+
+    # Extract app key from Authorization header
+    auth = request.headers.get("authorization", "")
+    app_key = auth.replace("Bearer ", "").strip() if auth.startswith("Bearer ") else ""
+    if not app_key:
+        raise HTTPException(401, "Authorization header with Bearer token required")
+
+    # Map OpenAI format to internal format
+    model = body.get("model", "")
+    messages = body.get("messages", [])
+    max_tokens = body.get("max_tokens", 2000)
+    temperature = body.get("temperature", 0.7)
+
+    if not model:
+        raise HTTPException(400, "model is required")
+    if not messages:
+        raise HTTPException(400, "messages is required")
+
+    try:
+        result = await engine.proxy_chat(
+            app_key=app_key,
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        log.error(f"OpenAI proxy error: {e}")
+        raise HTTPException(502, f"LLM provider error: {e}")
+
+    _broadcast_sse(
+        "request_completed",
+        {
+            "model": result["model"],
+            "cost_usd": result["cost_usd"],
+            "downgraded": result["downgraded"],
+        },
+    )
+
+    # Convert to OpenAI response format
+    return {
+        "id": f"chatcmpl-cc-{id(result) & 0xFFFFFFFF:08x}",
+        "object": "chat.completion",
+        "model": result.get("model", model),
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": result.get("content", "")},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": result.get("input_tokens", 0),
+            "completion_tokens": result.get("output_tokens", 0),
+            "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
+        },
+    }
+
+
 @app.post("/api/proxy/chat")
 async def proxy_chat(request: Request):
     """Proxy a chat completion request through CostControl.
@@ -369,3 +438,22 @@ async def get_budgets():
 async def get_pricing():
     """Get all known model pricing."""
     return {"models": list_models()}
+
+
+# ── Cache ────────────────────────────────────────────────────
+
+
+@app.get("/api/cache/stats")
+async def cache_stats():
+    """Get response cache statistics."""
+    if engine:
+        return {"cache": engine.cache.stats()}
+    return {"cache": {"cache_size": 0, "active_entries": 0, "hits": 0, "misses": 0, "hit_rate_pct": 0.0}}
+
+
+@app.post("/api/cache/clear")
+async def cache_clear():
+    """Clear the response cache."""
+    if engine:
+        engine.cache.clear()
+    return {"status": "ok"}

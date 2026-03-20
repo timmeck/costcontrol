@@ -176,6 +176,59 @@ class TestPricingEndpoint:
         assert sonnet[0]["input_per_million"] == 3.0
 
 
+class TestOpenAICompatibleEndpoint:
+    """Test the OpenAI-compatible /v1/chat/completions endpoint."""
+
+    async def test_missing_auth_returns_401(self, client):
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code == 401
+
+    async def test_missing_model_returns_400(self, client):
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hi"}]},
+            headers={"Authorization": "Bearer cc_test123"},
+        )
+        assert resp.status_code == 400
+
+    async def test_missing_messages_returns_400(self, client):
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4o"},
+            headers={"Authorization": "Bearer cc_test123"},
+        )
+        assert resp.status_code == 400
+
+    async def test_invalid_key_returns_400(self, client):
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+            headers={"Authorization": "Bearer cc_invalid_key"},
+        )
+        assert resp.status_code == 400
+
+
+class TestCacheEndpoints:
+    """Test cache stats and clear endpoints."""
+
+    async def test_cache_stats(self, client):
+        resp = await client.get("/api/cache/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "cache" in data
+        assert "hits" in data["cache"]
+        assert "misses" in data["cache"]
+        assert "hit_rate_pct" in data["cache"]
+
+    async def test_cache_clear(self, client):
+        resp = await client.post("/api/cache/clear")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
 class TestDashboard:
     """Test dashboard serving."""
 

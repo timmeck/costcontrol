@@ -7,10 +7,74 @@ import httpx
 from src.config import ANTHROPIC_API_KEY, OLLAMA_URL, OPENAI_API_KEY
 from src.db.database import Database
 from src.proxy.budgets import BudgetManager
-from src.proxy.pricing import calculate_cost, get_provider, is_free_model
+from src.proxy.cache import ResponseCache
+from src.proxy.pricing import calculate_cost, get_provider, get_pricing, is_free_model
 from src.utils.logger import get_logger
 
 log = get_logger("engine")
+
+
+# ── Model tiers for smart routing ───────────────────────────
+
+MODEL_TIERS: dict[str, list[str]] = {
+    "anthropic": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-4o", "gpt-4.1", "o3", "gpt-4o-mini", "gpt-4.1-mini", "o4-mini", "gpt-4.1-nano"],
+}
+
+
+def score_complexity(prompt: str) -> float:
+    """Score prompt complexity 0-1 for routing decisions."""
+    score = 0.0
+    # Length factor
+    if len(prompt) > 2000:
+        score += 0.2
+    elif len(prompt) > 500:
+        score += 0.1
+    # Code detection
+    if any(kw in prompt.lower() for kw in ["```", "def ", "function ", "class ", "import "]):
+        score += 0.3
+    # Reasoning keywords
+    if any(kw in prompt.lower() for kw in ["analyze", "compare", "explain why", "step by step", "reasoning"]):
+        score += 0.2
+    # Multi-step
+    if any(kw in prompt.lower() for kw in ["first", "then", "finally", "steps", "plan"]):
+        score += 0.1
+    # Math/logic
+    if any(kw in prompt.lower() for kw in ["calculate", "equation", "proof", "algorithm"]):
+        score += 0.2
+    return min(score, 1.0)
+
+
+def pick_cheaper_model(model: str, complexity: float) -> str | None:
+    """Pick a cheaper model from the same provider based on complexity.
+
+    Returns None if no downgrade is appropriate.
+    Only suggests a cheaper model when complexity is low (<0.3).
+    """
+    if complexity >= 0.3:
+        return None
+
+    provider = get_provider(model)
+    tier_list = MODEL_TIERS.get(provider)
+    if not tier_list or model not in tier_list:
+        return None
+
+    current_idx = tier_list.index(model)
+    # Already the cheapest in tier
+    if current_idx >= len(tier_list) - 1:
+        return None
+
+    # Pick a model 1-2 tiers cheaper based on complexity
+    steps = 2 if complexity < 0.1 else 1
+    cheaper_idx = min(current_idx + steps, len(tier_list) - 1)
+    cheaper_model = tier_list[cheaper_idx]
+
+    # Only suggest if actually cheaper
+    current_price = get_pricing(model)
+    cheaper_price = get_pricing(cheaper_model)
+    if cheaper_price["input"] < current_price["input"]:
+        return cheaper_model
+    return None
 
 
 class ProxyEngine:
@@ -19,6 +83,7 @@ class ProxyEngine:
     def __init__(self, db: Database):
         self.db = db
         self.budget_mgr = BudgetManager(db)
+        self.cache = ResponseCache(default_ttl=3600)
 
     async def proxy_chat(
         self, app_key: str, model: str, messages: list[dict], max_tokens: int = 2000, temperature: float = 0.7
@@ -46,6 +111,7 @@ class ProxyEngine:
 
         app_id = app["id"]
         downgraded = False
+        smart_routed = False
         original_model = model
 
         # 2. Check budget
@@ -60,6 +126,32 @@ class ProxyEngine:
                 "auto_downgrade",
                 f"Auto-downgraded from {original_model} to {model} (budget exceeded)",
             )
+        elif not is_free_model(model):
+            # 2b. Smart routing — use complexity to pick cheaper model when budget is getting tight
+            budget_pct = max(budget_status.get("daily_pct", 0), budget_status.get("monthly_pct", 0))
+            if budget_pct >= 50:  # Only smart-route when budget is >=50% consumed
+                prompt_text = " ".join(m.get("content", "") for m in messages if m.get("role") == "user")
+                complexity = score_complexity(prompt_text)
+                cheaper = pick_cheaper_model(model, complexity)
+                if cheaper:
+                    log.info(
+                        f"Smart routing: complexity={complexity:.2f}, budget={budget_pct:.0f}% — "
+                        f"routing {model} -> {cheaper}"
+                    )
+                    model = cheaper
+                    smart_routed = True
+
+        # 2c. Check cache before calling LLM
+        cached = self.cache.get(model, messages)
+        if cached is not None:
+            log.info(f"Returning cached response for app '{app['name']}'")
+            return {
+                **cached,
+                "cached": True,
+                "downgraded": downgraded,
+                "smart_routed": smart_routed,
+                "original_model": original_model if (downgraded or smart_routed) else None,
+            }
 
         # 3. Forward to provider
         provider = get_provider(model)
@@ -111,7 +203,7 @@ class ProxyEngine:
         # 6. Check alerts after recording
         await self.budget_mgr.check_and_alert(app_id)
 
-        return {
+        response = {
             "content": result["content"],
             "model": model,
             "provider": provider,
@@ -119,9 +211,16 @@ class ProxyEngine:
             "output_tokens": output_tokens,
             "cost_usd": cost_usd,
             "downgraded": downgraded,
-            "original_model": original_model if downgraded else None,
+            "smart_routed": smart_routed,
+            "original_model": original_model if (downgraded or smart_routed) else None,
             "latency_ms": latency_ms,
+            "cached": False,
         }
+
+        # 7. Cache the response
+        self.cache.put(model, messages, response)
+
+        return response
 
     async def _call_anthropic(self, model: str, messages: list[dict], max_tokens: int, temperature: float) -> dict:
         """Call Anthropic Claude API."""

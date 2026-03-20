@@ -2,7 +2,8 @@
 
 import pytest
 
-from src.proxy.engine import ProxyEngine
+from src.proxy.cache import ResponseCache
+from src.proxy.engine import ProxyEngine, pick_cheaper_model, score_complexity
 from src.proxy.pricing import calculate_cost, get_provider
 
 
@@ -147,3 +148,151 @@ class TestCostEstimation:
         )
         assert result["estimated_cost_usd"] == 0
         assert result["free"] is True
+
+
+class TestComplexityScoring:
+    """Test the complexity scorer for smart routing."""
+
+    def test_simple_prompt_low_score(self):
+        score = score_complexity("Hello, how are you?")
+        assert score < 0.3
+
+    def test_code_prompt_high_score(self):
+        score = score_complexity("def fibonacci(n): return n if n <= 1 else fibonacci(n-1)")
+        assert score >= 0.3
+
+    def test_reasoning_prompt(self):
+        score = score_complexity("Analyze and compare these two approaches step by step")
+        assert score >= 0.2
+
+    def test_math_prompt(self):
+        score = score_complexity("Calculate the equation for proof of this algorithm")
+        assert score >= 0.2
+
+    def test_combined_reasoning_and_code(self):
+        score = score_complexity("Analyze this ```python\ndef foo(): pass``` step by step, first plan then finally execute")
+        assert score >= 0.6
+
+    def test_long_prompt_gets_bonus(self):
+        short = score_complexity("Hello")
+        long = score_complexity("x " * 1500)  # > 2000 chars
+        assert long > short
+
+    def test_score_capped_at_one(self):
+        # Trigger everything: code + reasoning + math + long + multi-step
+        prompt = (
+            "```python\ndef analyze(): pass```\n"
+            "Analyze step by step, calculate the equation, "
+            "first plan then finally " + "x " * 1500
+        )
+        score = score_complexity(prompt)
+        assert score == 1.0
+
+    def test_empty_prompt(self):
+        score = score_complexity("")
+        assert score == 0.0
+
+
+class TestSmartRouting:
+    """Test the pick_cheaper_model function."""
+
+    def test_low_complexity_gets_cheaper_model(self):
+        cheaper = pick_cheaper_model("claude-opus-4-6", 0.1)
+        assert cheaper is not None
+        assert cheaper != "claude-opus-4-6"
+
+    def test_high_complexity_keeps_model(self):
+        cheaper = pick_cheaper_model("claude-opus-4-6", 0.5)
+        assert cheaper is None
+
+    def test_already_cheapest_returns_none(self):
+        cheaper = pick_cheaper_model("gpt-4.1-nano", 0.1)
+        assert cheaper is None
+
+    def test_free_model_returns_none(self):
+        cheaper = pick_cheaper_model("qwen3:14b", 0.1)
+        assert cheaper is None
+
+    def test_very_low_complexity_skips_two_tiers(self):
+        cheaper = pick_cheaper_model("claude-opus-4-6", 0.05)
+        # Should skip 2 tiers from opus -> haiku
+        assert cheaper == "claude-haiku-4-5-20251001"
+
+    def test_medium_low_complexity_skips_one_tier(self):
+        cheaper = pick_cheaper_model("claude-opus-4-6", 0.2)
+        # Should skip 1 tier from opus -> sonnet
+        assert cheaper == "claude-sonnet-4-6"
+
+
+class TestResponseCache:
+    """Test the response cache."""
+
+    def test_cache_miss(self):
+        cache = ResponseCache()
+        result = cache.get("gpt-4o", [{"role": "user", "content": "hello"}])
+        assert result is None
+
+    def test_cache_hit(self):
+        cache = ResponseCache()
+        messages = [{"role": "user", "content": "hello"}]
+        response = {"content": "Hi there!", "model": "gpt-4o"}
+        cache.put("gpt-4o", messages, response)
+        result = cache.get("gpt-4o", messages)
+        assert result is not None
+        assert result["content"] == "Hi there!"
+
+    def test_cache_different_model_misses(self):
+        cache = ResponseCache()
+        messages = [{"role": "user", "content": "hello"}]
+        cache.put("gpt-4o", messages, {"content": "Hi"})
+        result = cache.get("gpt-4o-mini", messages)
+        assert result is None
+
+    def test_cache_different_messages_misses(self):
+        cache = ResponseCache()
+        cache.put("gpt-4o", [{"role": "user", "content": "hello"}], {"content": "Hi"})
+        result = cache.get("gpt-4o", [{"role": "user", "content": "goodbye"}])
+        assert result is None
+
+    def test_cache_expiry(self):
+        cache = ResponseCache(default_ttl=0)  # Expires immediately
+        messages = [{"role": "user", "content": "hello"}]
+        cache.put("gpt-4o", messages, {"content": "Hi"})
+        import time
+        time.sleep(0.01)
+        result = cache.get("gpt-4o", messages)
+        assert result is None
+
+    def test_cache_stats(self):
+        cache = ResponseCache()
+        messages = [{"role": "user", "content": "hello"}]
+        cache.put("gpt-4o", messages, {"content": "Hi"})
+        cache.get("gpt-4o", messages)  # hit
+        cache.get("gpt-4o-mini", messages)  # miss
+
+        stats = cache.stats()
+        assert stats["cache_size"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["hit_rate_pct"] == 50.0
+
+    def test_cache_clear(self):
+        cache = ResponseCache()
+        cache.put("gpt-4o", [{"role": "user", "content": "hello"}], {"content": "Hi"})
+        assert cache.stats()["cache_size"] == 1
+        cache.clear()
+        assert cache.stats()["cache_size"] == 0
+
+    def test_cleanup_expired(self):
+        cache = ResponseCache(default_ttl=0)
+        cache.put("gpt-4o", [{"role": "user", "content": "hello"}], {"content": "Hi"})
+        import time
+        time.sleep(0.01)
+        cache.cleanup_expired()
+        assert cache.stats()["cache_size"] == 0
+
+    def test_engine_has_cache(self, db):
+        """Verify ProxyEngine initializes with a cache."""
+        engine = ProxyEngine(db)
+        assert engine.cache is not None
+        assert isinstance(engine.cache, ResponseCache)
