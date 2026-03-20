@@ -1,13 +1,15 @@
 """FastAPI routes + SSE for CostControl dashboard."""
 
 import asyncio
+import csv
+import io
 import json
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.config import COSTCONTROL_PORT, DB_PATH, NEXUS_URL
@@ -429,6 +431,53 @@ async def get_budgets():
     """Get budget status for all apps."""
     statuses = await budget_mgr.get_all_budget_statuses()
     return {"budgets": statuses}
+
+
+# ── Billing Export ────────────────────────────────────────────
+
+
+@app.get("/api/billing/export")
+async def billing_export(request: Request):
+    """Export usage data as CSV or JSON.
+
+    Query params:
+        app_key: filter by app API key
+        format: 'csv' or 'json' (default: json)
+        from: start date (YYYY-MM-DD)
+        to: end date (YYYY-MM-DD)
+    """
+    params = request.query_params
+    app_key = params.get("app_key")
+    format = params.get("format", "json")
+    # Accept both 'from'/'to' and 'date_from'/'date_to'
+    date_from = params.get("from") or params.get("date_from")
+    date_to = params.get("to") or params.get("date_to")
+    rows = await db.get_billing_export(app_key=app_key, date_from=date_from, date_to=date_to)
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.DictWriter(
+            output,
+            fieldnames=["date", "app_name", "model", "provider", "requests", "tokens_in", "tokens_out", "cost_usd"],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=billing_export.csv"},
+        )
+
+    return {"export": rows}
+
+
+@app.get("/api/billing/summary")
+async def billing_summary():
+    """Get aggregated billing summary: cost per app, cost per model, cost per day."""
+    summary = await db.get_billing_summary()
+    return summary
 
 
 # ── Pricing ──────────────────────────────────────────────────

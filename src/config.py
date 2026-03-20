@@ -25,3 +25,7 @@ COSTCONTROL_PORT = int(os.getenv("COSTCONTROL_PORT", "8600"))
 NEXUS_URL = os.getenv("NEXUS_URL", "http://localhost:9500")
 COSTCONTROL_API_KEY = os.getenv("COSTCONTROL_API_KEY", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# Webhook / notification config
+ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "")

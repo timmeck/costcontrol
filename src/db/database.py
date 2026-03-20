@@ -481,6 +481,74 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    async def get_billing_export(
+        self, app_key: str | None = None, date_from: str | None = None, date_to: str | None = None
+    ) -> list[dict]:
+        """Export detailed billing data, optionally filtered by app key and date range.
+
+        Returns rows with: date, app_name, model, provider, requests, tokens_in, tokens_out, cost_usd.
+        """
+        conditions = []
+        params: list = []
+
+        if app_key:
+            conditions.append("a.api_key = ?")
+            params.append(app_key)
+        if date_from:
+            conditions.append("DATE(r.created_at) >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("DATE(r.created_at) <= ?")
+            params.append(date_to)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        cursor = await self.db.execute(
+            f"""SELECT DATE(r.created_at) as date, a.name as app_name, r.model, r.provider,
+                   COUNT(*) as requests, SUM(r.input_tokens) as tokens_in,
+                   SUM(r.output_tokens) as tokens_out, SUM(r.cost_usd) as cost_usd
+               FROM requests r
+               JOIN apps a ON r.app_id = a.id
+               {where}
+               GROUP BY DATE(r.created_at), a.name, r.model, r.provider
+               ORDER BY date DESC, app_name, model""",
+            params,
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_billing_summary(self) -> dict:
+        """Get aggregated billing summary: cost per app, cost per model, cost per day."""
+        # Cost per app
+        cursor = await self.db.execute(
+            """SELECT a.name as app_name, COUNT(*) as requests,
+                   SUM(r.input_tokens) as tokens_in, SUM(r.output_tokens) as tokens_out,
+                   SUM(r.cost_usd) as cost_usd
+               FROM requests r JOIN apps a ON r.app_id = a.id
+               GROUP BY a.name ORDER BY cost_usd DESC"""
+        )
+        by_app = [dict(r) for r in await cursor.fetchall()]
+
+        # Cost per model
+        cursor = await self.db.execute(
+            """SELECT model, provider, COUNT(*) as requests,
+                   SUM(input_tokens) as tokens_in, SUM(output_tokens) as tokens_out,
+                   SUM(cost_usd) as cost_usd
+               FROM requests GROUP BY model, provider ORDER BY cost_usd DESC"""
+        )
+        by_model = [dict(r) for r in await cursor.fetchall()]
+
+        # Cost per day
+        cursor = await self.db.execute(
+            """SELECT DATE(created_at) as date, COUNT(*) as requests,
+                   SUM(input_tokens) as tokens_in, SUM(output_tokens) as tokens_out,
+                   SUM(cost_usd) as cost_usd
+               FROM requests GROUP BY DATE(created_at) ORDER BY date DESC LIMIT 90"""
+        )
+        by_day = [dict(r) for r in await cursor.fetchall()]
+
+        return {"by_app": by_app, "by_model": by_model, "by_day": by_day}
+
     async def get_app_breakdown(self) -> list[dict]:
         """Get spend breakdown by app with budget info."""
         month_prefix = _today()[:7]

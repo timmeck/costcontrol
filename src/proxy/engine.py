@@ -1,5 +1,6 @@
 """Core proxy engine — intercepts LLM calls, tracks costs, enforces budgets."""
 
+import re
 import time
 
 import httpx
@@ -12,6 +13,101 @@ from src.proxy.pricing import calculate_cost, get_provider, get_pricing, is_free
 from src.utils.logger import get_logger
 
 log = get_logger("engine")
+
+
+# ── Prompt Compression / Token Optimization ─────────────────
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~1.3 tokens per word."""
+    return max(1, int(len(text.split()) * 1.3))
+
+
+def optimize_prompt(messages: list[dict], max_reduction: float = 0.3) -> tuple[list[dict], dict]:
+    """Optimize messages to reduce token usage.
+
+    - Strips excessive whitespace and normalizes newlines
+    - If messages array is long (>10), summarizes older messages into condensed context
+
+    Args:
+        messages: List of chat messages.
+        max_reduction: Maximum fraction of tokens to remove (0.0-1.0).
+
+    Returns:
+        (optimized_messages, optimization_meta) where meta contains tokens_before,
+        tokens_after, tokens_saved, and messages_condensed count.
+    """
+    if not messages:
+        return messages, {"tokens_before": 0, "tokens_after": 0, "tokens_saved": 0, "messages_condensed": 0}
+
+    tokens_before = sum(_estimate_tokens(m.get("content", "")) for m in messages)
+
+    # Step 1: Normalize whitespace in all messages
+    cleaned: list[dict] = []
+    for m in messages:
+        content = m.get("content", "")
+        # Collapse multiple spaces/tabs to single space
+        content = re.sub(r"[ \t]+", " ", content)
+        # Normalize multiple newlines to max two
+        content = re.sub(r"\n{3,}", "\n\n", content)
+        # Strip leading/trailing whitespace per line
+        content = "\n".join(line.strip() for line in content.split("\n"))
+        content = content.strip()
+        cleaned.append({**m, "content": content})
+
+    # Step 2: If >10 messages, condense older ones into a summary
+    messages_condensed = 0
+    if len(cleaned) > 10:
+        # Keep the system message (if first), last 6 messages, condense the middle
+        has_system = cleaned[0].get("role") == "system"
+        prefix = cleaned[:1] if has_system else []
+        middle = cleaned[1:-6] if has_system else cleaned[:-6]
+        suffix = cleaned[-6:]
+
+        if middle:
+            # Condense middle messages into a brief summary
+            summary_parts = []
+            for m in middle:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                # Truncate each message to first 80 chars for the summary
+                snippet = content[:80].replace("\n", " ")
+                if len(content) > 80:
+                    snippet += "..."
+                summary_parts.append(f"[{role}]: {snippet}")
+            messages_condensed = len(middle)
+            condensed_msg = {
+                "role": "system",
+                "content": f"[Condensed {len(middle)} earlier messages]\n" + "\n".join(summary_parts),
+            }
+            cleaned = prefix + [condensed_msg] + suffix
+
+    tokens_after = sum(_estimate_tokens(m.get("content", "")) for m in cleaned)
+
+    # Enforce max_reduction cap: if we removed too many tokens, back off
+    if tokens_before > 0:
+        reduction_pct = (tokens_before - tokens_after) / tokens_before
+        if reduction_pct > max_reduction:
+            # Too aggressive — return whitespace-cleaned only (no condensing)
+            cleaned_only: list[dict] = []
+            for m in messages:
+                content = m.get("content", "")
+                content = re.sub(r"[ \t]+", " ", content)
+                content = re.sub(r"\n{3,}", "\n\n", content)
+                content = "\n".join(line.strip() for line in content.split("\n"))
+                content = content.strip()
+                cleaned_only.append({**m, "content": content})
+            tokens_after = sum(_estimate_tokens(m.get("content", "")) for m in cleaned_only)
+            cleaned = cleaned_only
+            messages_condensed = 0
+
+    tokens_saved = max(0, tokens_before - tokens_after)
+    return cleaned, {
+        "tokens_before": tokens_before,
+        "tokens_after": tokens_after,
+        "tokens_saved": tokens_saved,
+        "messages_condensed": messages_condensed,
+    }
 
 
 # ── Model tiers for smart routing ───────────────────────────
@@ -141,7 +237,18 @@ class ProxyEngine:
                     model = cheaper
                     smart_routed = True
 
-        # 2c. Check cache before calling LLM
+        # 2c. Token optimization (optional per app — enabled by default)
+        optimization_meta = None
+        app_optimize = app.get("optimize_prompts", 1)
+        if app_optimize:
+            messages, optimization_meta = optimize_prompt(messages, max_reduction=0.3)
+            if optimization_meta["tokens_saved"] > 0:
+                log.info(
+                    f"Prompt optimization: saved ~{optimization_meta['tokens_saved']} tokens "
+                    f"({optimization_meta['messages_condensed']} messages condensed)"
+                )
+
+        # 2d. Check cache before calling LLM
         cached = self.cache.get(model, messages)
         if cached is not None:
             log.info(f"Returning cached response for app '{app['name']}'")
@@ -215,6 +322,7 @@ class ProxyEngine:
             "original_model": original_model if (downgraded or smart_routed) else None,
             "latency_ms": latency_ms,
             "cached": False,
+            "optimization": optimization_meta,
         }
 
         # 7. Cache the response

@@ -1,5 +1,10 @@
 """Budget management — enforce limits, trigger alerts, auto-downgrade logic."""
 
+import time
+
+import httpx
+
+from src.config import ALERT_WEBHOOK_URL, NTFY_TOPIC
 from src.db.database import Database
 from src.utils.logger import get_logger
 
@@ -7,6 +12,50 @@ log = get_logger("budgets")
 
 # Alert thresholds as percentages
 ALERT_THRESHOLDS = [0.80, 0.90, 1.00]
+
+# Debounce: track last webhook send time per (app_id, alert_level)
+_webhook_debounce: dict[tuple[int, int], float] = {}
+DEBOUNCE_SECONDS = 3600  # 1 hour
+
+
+def _should_send_webhook(app_id: int, alert_level: int) -> bool:
+    """Check debounce: only send same alert level once per hour."""
+    key = (app_id, alert_level)
+    last_sent = _webhook_debounce.get(key, 0)
+    now = time.time()
+    if now - last_sent < DEBOUNCE_SECONDS:
+        return False
+    _webhook_debounce[key] = now
+    return True
+
+
+async def _send_webhook_alert(payload: dict) -> None:
+    """Send alert to configured webhook URL and/or ntfy topic."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        if ALERT_WEBHOOK_URL:
+            try:
+                resp = await client.post(ALERT_WEBHOOK_URL, json=payload)
+                log.info(f"Webhook alert sent: status={resp.status_code}")
+            except Exception as e:
+                log.error(f"Webhook alert failed: {e}")
+
+        if NTFY_TOPIC:
+            try:
+                ntfy_url = f"https://ntfy.sh/{NTFY_TOPIC}"
+                level = payload.get("alert_level", 80)
+                priority = "urgent" if level >= 100 else "high" if level >= 90 else "default"
+                resp = await client.post(
+                    ntfy_url,
+                    content=payload.get("message", "Budget alert"),
+                    headers={
+                        "Title": f"CostControl: {payload.get('app', 'unknown')} budget alert",
+                        "Priority": priority,
+                        "Tags": "money,warning",
+                    },
+                )
+                log.info(f"Ntfy alert sent: status={resp.status_code}")
+            except Exception as e:
+                log.error(f"Ntfy alert failed: {e}")
 
 
 class BudgetManager:
@@ -121,6 +170,19 @@ class BudgetManager:
                         alerts_created.append(alert)
                         log.warning(msg)
 
+                        # Send webhook/ntfy alert
+                        alert_level = int(threshold * 100)
+                        if _should_send_webhook(app_id, alert_level):
+                            await _send_webhook_alert({
+                                "app": app["name"],
+                                "budget_used_pct": round(monthly_pct * 100, 1),
+                                "budget_limit": app["budget_monthly"],
+                                "current_spend": round(monthly_spend, 4),
+                                "alert_level": alert_level,
+                                "budget_type": "monthly",
+                                "message": msg,
+                            })
+
         # Check daily budget thresholds
         if app["budget_daily"] > 0:
             daily_spend = await self.db.get_app_spend_today(app_id)
@@ -156,6 +218,19 @@ class BudgetManager:
                         )
                         alerts_created.append(alert)
                         log.warning(msg)
+
+                        # Send webhook/ntfy alert
+                        alert_level = int(threshold * 100)
+                        if _should_send_webhook(app_id, alert_level):
+                            await _send_webhook_alert({
+                                "app": app["name"],
+                                "budget_used_pct": round(daily_pct * 100, 1),
+                                "budget_limit": app["budget_daily"],
+                                "current_spend": round(daily_spend, 4),
+                                "alert_level": alert_level,
+                                "budget_type": "daily",
+                                "message": msg,
+                            })
 
         return alerts_created
 
